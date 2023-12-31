@@ -10,19 +10,20 @@ import org.xmlpull.v1.XmlPullParserException;
 import soot.*;
 import soot.dexpler.DalvikThrowAnalysis;
 import soot.jimple.infoflow.android.manifest.ProcessManifest;
+import soot.jimple.toolkits.callgraph.CallGraph;
+import soot.jimple.toolkits.callgraph.Edge;
 import soot.jimple.toolkits.ide.icfg.JimpleBasedInterproceduralCFG;
 import soot.toolkits.graph.BriefUnitGraph;
 import soot.toolkits.graph.DirectedGraph;
 import soot.toolkits.graph.ExceptionalUnitGraphFactory;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class Main {
 
@@ -42,13 +43,24 @@ public class Main {
                         : new BriefUnitGraph(body);
             }
         };
+        CallGraph largestCallGraph = Scene.v().getCallGraph();
 
         for (SootClass sootClass : Scene.v().getApplicationClasses()) {
             if (ApplicationClassFilter.isClassInSystemPackage(sootClass.getName())) {
                 continue;
             }
+
+            for (SootMethod sootMethod: sootClass.getMethods()){
+                Scene.v().setEntryPoints(Collections.singletonList(sootMethod));
+                CallGraph cg = Scene.v().getCallGraph();
+                if(cg.size() > largestCallGraph.size()){
+                    largestCallGraph = cg;
+                }
+            }
             //todo:yitong retrieve and printout callgraph here..
         }
+        saveCallGraph(largestCallGraph, "callgraph.dot");
+        dot2png("callgraph.dot");
 
         long afterEntryPoint = System.currentTimeMillis();
         System.out.println("==>after EntryPoint TIME:" + afterEntryPoint);
@@ -70,6 +82,38 @@ public class Main {
         EntryPointHelper entryPointHelper = new EntryPointHelper();
         entryPointHelper.calculateEntryPoint(apkPath, androidJarPath);
         return entryPointHelper;
+    }
+
+    private static void saveCallGraph(CallGraph callGraph, String fileName){
+        try (PrintWriter writer = new PrintWriter(new FileWriter(fileName))) {
+            writer.println("digraph CallGraph {");
+
+            for (Edge edge : callGraph) {
+                // Add the edge to the DOT file
+                if(ApplicationClassFilter.isClassInSystemPackage
+                        (String.valueOf(edge.getSrc().method().getDeclaringClass())) ||
+                        ApplicationClassFilter.isClassInSystemPackage
+                                (String.valueOf(edge.getTgt().method().getDeclaringClass()))){
+                    continue;
+                }
+                writer.println("  \"" + edge.getSrc() + "\" -> \"" + edge.getTgt() + "\";");
+            }
+
+            writer.println("}");
+            writer.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void dot2png(String dotFile){
+        String cmd = String.format("dot -Tpng -O %s", dotFile);
+        try{
+            Runtime.getRuntime().exec(cmd);
+        }catch (IOException e){
+            e.printStackTrace();
+        }
+
     }
 
 }
