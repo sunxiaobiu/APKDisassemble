@@ -59,7 +59,7 @@ public class Main {
             }
             //todo:yitong retrieve and printout callgraph here..
         }
-        saveCallGraph(largestCallGraph, "callgraph.dot");
+        saveCallGraph2Dot(largestCallGraph, "callgraph.dot");
         dot2png("callgraph.dot");
 
         long afterEntryPoint = System.currentTimeMillis();
@@ -84,7 +84,7 @@ public class Main {
         return entryPointHelper;
     }
 
-    private static void saveCallGraph(CallGraph callGraph, String fileName){
+    private static void saveCallGraph2Dot(CallGraph callGraph, String fileName){
         try (PrintWriter writer = new PrintWriter(new FileWriter(fileName))) {
             writer.println("digraph CallGraph {");
 
@@ -94,6 +94,11 @@ public class Main {
                         (String.valueOf(edge.getSrc().method().getDeclaringClass())) ||
                         ApplicationClassFilter.isClassInSystemPackage
                                 (String.valueOf(edge.getTgt().method().getDeclaringClass()))){
+                    continue;
+                }
+
+                if(String.valueOf(edge.getSrc().method().getDeclaringClass()).contains("dummy") ||
+                        String.valueOf(edge.getTgt().method().getDeclaringClass()).contains("dummy")){
                     continue;
                 }
                 writer.println("  \"" + edge.getSrc() + "\" -> \"" + edge.getTgt() + "\";");
