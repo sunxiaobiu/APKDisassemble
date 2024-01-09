@@ -1,30 +1,26 @@
 package edu.src;
 
-import edu.model.*;
-import edu.model.sourcefile.ResourceLeakRule;
-import edu.model.sourcefile.TypeStateRule;
-import edu.util.*;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
+import edu.util.ApplicationClassFilter;
+import edu.util.EntryPointHelper;
 import org.xmlpull.v1.XmlPullParserException;
 import soot.*;
 import soot.dexpler.DalvikThrowAnalysis;
 import soot.jimple.infoflow.android.manifest.ProcessManifest;
+import soot.jimple.toolkits.callgraph.CallGraph;
+import soot.jimple.toolkits.callgraph.Edge;
 import soot.jimple.toolkits.ide.icfg.JimpleBasedInterproceduralCFG;
 import soot.toolkits.graph.BriefUnitGraph;
 import soot.toolkits.graph.DirectedGraph;
 import soot.toolkits.graph.ExceptionalUnitGraphFactory;
 
-import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.io.PrintWriter;
+import java.util.Collections;
 
 public class Main {
+
+    private static final String DELIMITER = "----->>>>>";
 
     public static void main(String[] args) throws XmlPullParserException, IOException {
         String apkPath = args[0];
@@ -42,13 +38,25 @@ public class Main {
                         : new BriefUnitGraph(body);
             }
         };
+        CallGraph largestCallGraph = Scene.v().getCallGraph();
 
         for (SootClass sootClass : Scene.v().getApplicationClasses()) {
             if (ApplicationClassFilter.isClassInSystemPackage(sootClass.getName())) {
                 continue;
             }
+
+            for (SootMethod sootMethod: sootClass.getMethods()){
+                Scene.v().setEntryPoints(Collections.singletonList(sootMethod));
+                CallGraph cg = Scene.v().getCallGraph();
+                if(cg.size() > largestCallGraph.size()){
+                    largestCallGraph = cg;
+                }
+            }
             //todo:yitong retrieve and printout callgraph here..
         }
+        saveCallGraph2DirectedGraph(largestCallGraph, "callgraph.txt");
+        saveCallGraph2Dot(largestCallGraph, "callgraph.dot");
+        dot2png("callgraph.dot");
 
         long afterEntryPoint = System.currentTimeMillis();
         System.out.println("==>after EntryPoint TIME:" + afterEntryPoint);
@@ -70,6 +78,73 @@ public class Main {
         EntryPointHelper entryPointHelper = new EntryPointHelper();
         entryPointHelper.calculateEntryPoint(apkPath, androidJarPath);
         return entryPointHelper;
+    }
+
+    private static boolean containsUnnecessaryClasses(Edge edge){
+        if(ApplicationClassFilter.isClassInSystemPackage
+                (String.valueOf(edge.getSrc().method().getDeclaringClass())) ||
+                ApplicationClassFilter.isClassInSystemPackage
+                        (String.valueOf(edge.getTgt().method().getDeclaringClass()))){
+            return true;
+        }
+
+        if(String.valueOf(edge.getSrc().method().getDeclaringClass()).contains("dummy") ||
+                String.valueOf(edge.getTgt().method().getDeclaringClass()).contains("dummy")){
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void saveCallGraph2DirectedGraph(CallGraph callGraph, String fileName){
+        try (PrintWriter writer = new PrintWriter(new FileWriter(fileName))) {
+            for (Edge edge : callGraph) {
+                // Add the edge to the DOT file
+                if(containsUnnecessaryClasses(edge)){
+                    continue;
+                }
+                //String src = edge.getSrc().toString(), tgt = edge.getTgt().toString();
+
+                String src = edge.getSrc().method().getDeclaringClass()+"."+edge.getSrc().method().getName();
+                String tgt = edge.getTgt().method().getDeclaringClass()+"."+edge.getTgt().method().getName();
+                writer.println(src + DELIMITER + tgt);
+            }
+
+            writer.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void saveCallGraph2Dot(CallGraph callGraph, String fileName){
+        try (PrintWriter writer = new PrintWriter(new FileWriter(fileName))) {
+            writer.println("digraph CallGraph {");
+
+            for (Edge edge : callGraph) {
+                // Add the edge to the DOT file
+                if(containsUnnecessaryClasses(edge)){
+                    continue;
+                }
+
+                String src = edge.getSrc().method().getDeclaringClass()+"."+edge.getSrc().method().getName();
+                String tgt = edge.getTgt().method().getDeclaringClass()+"."+edge.getTgt().method().getName();
+                writer.println("  \"" + src + "\" -> \"" + tgt + "\";");
+            }
+
+            writer.println("}");
+            writer.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void dot2png(String dotFile){
+        String cmd = String.format("dot -Tpng -O %s", dotFile);
+        try{
+            Runtime.getRuntime().exec(cmd);
+        }catch (IOException e){
+            e.printStackTrace();
+        }
     }
 
 }
